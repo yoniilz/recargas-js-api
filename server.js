@@ -308,6 +308,52 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
   }
 });
 
+
+// Consulta el estado REAL de una orden en SixoFire.
+// Este endpoint no crea órdenes ni consume cuota SHOP_ORDER.
+app.get("/api/orders/status/:id", requireAdmin, requireSixo, async (req,res)=>{
+  const id = String(req.params.id || "").trim();
+
+  if(!/^\d+$/.test(id)){
+    return res.status(400).json({ok:false,error:"ID de orden inválido."});
+  }
+
+  try{
+    const { response, data } = await sixoffFetch(`/account/shop/orders/${id}`);
+
+    if(!response.ok || !data?.status){
+      return res.status(response.status || 502).json({
+        ok:false,
+        error:data?.message || "No se pudo consultar el estado de la orden.",
+        sixoff:data
+      });
+    }
+
+    const order = data?.data || {};
+    return res.json({
+      ok:true,
+      order:{
+        id:order.id,
+        status:order.status,
+        nickname:order?.gameAccount?.nickname || null,
+        uid:order?.gameAccount?.uid || null,
+        region:order?.gameAccount?.region || null,
+        updatedAt:order.updatedAt || null,
+        items:Array.isArray(order.items) ? order.items.map(i=>({
+          id:i.id,
+          name:i.name,
+          itemType:i.itemType,
+          status:i.status,
+          quantity:i.quantity
+        })) : []
+      }
+    });
+  }catch(err){
+    console.error(err);
+    return res.status(502).json({ok:false,error:"Error conectando con SixoFire."});
+  }
+});
+
 // Consulta temporal de protección anti-duplicados de esta instancia.
 app.get("/api/orders/local/:id", requireAdmin, (req,res)=>{
   const item = sentOrders.get(req.params.id);
@@ -316,5 +362,5 @@ app.get("/api/orders/local/:id", requireAdmin, (req,res)=>{
 });
 
 app.listen(PORT, "0.0.0.0", ()=>{
-  console.log(`Recargas JS API v4 funcionando en puerto ${PORT}`);
+  console.log(`Recargas JS API v5 funcionando en puerto ${PORT}`);
 });
