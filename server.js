@@ -178,7 +178,8 @@ app.post("/api/db/orders", requireSupabase, simpleRateLimit, async (req,res)=>{
         whatsapp:String(whatsapp),
         package_name:pkg,
         price_ars:price,
-        status:"waiting_payment"
+        status:"waiting_payment",
+        archived:false
       })
     });
 
@@ -229,13 +230,26 @@ app.get("/api/db/orders/public/:code", requireSupabase, async (req,res)=>{
 
 app.patch("/api/db/orders/:code", requireAdmin, requireSupabase, async (req,res)=>{
   const allowed = new Set(["waiting_payment","paid","processing","done","cancelled","failed"]);
-  const status = String(req.body?.status || "");
-  if(!allowed.has(status)) return res.status(400).json({ok:false,error:"Estado inválido."});
+  const patch = {};
+
+  if(req.body && Object.prototype.hasOwnProperty.call(req.body, "status")){
+    const status = String(req.body.status || "");
+    if(!allowed.has(status)){
+      return res.status(400).json({ok:false,error:"Estado inválido."});
+    }
+    patch.status = status;
+    if(status === "done") patch.delivered_at = new Date().toISOString();
+  }
+
+  if(req.body && Object.prototype.hasOwnProperty.call(req.body, "archived")){
+    patch.archived = Boolean(req.body.archived);
+  }
+
+  if(Object.keys(patch).length === 0){
+    return res.status(400).json({ok:false,error:"No hay cambios válidos."});
+  }
 
   try{
-    const patch = { status };
-    if(status === "done") patch.delivered_at = new Date().toISOString();
-
     const { response, data } = await patchDbOrder(req.params.code, patch);
     if(!response.ok) return res.status(502).json({ok:false,error:"No se pudo actualizar el pedido."});
     const order = Array.isArray(data) ? data[0] : null;
@@ -587,5 +601,5 @@ app.post("/api/db/orders/:code/sync", requireAdmin, requireSupabase, requireSixo
 });
 
 app.listen(PORT, "0.0.0.0", ()=>{
-  console.log(`Recargas JS API v6.1 + Supabase funcionando en puerto ${PORT}`);
+  console.log(`Recargas JS API v7 + Supabase funcionando en puerto ${PORT}`);
 });
