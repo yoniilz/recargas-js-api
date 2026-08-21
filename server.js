@@ -90,8 +90,9 @@ async function sixoffFetch(path, options = {}) {
 
 async function supabaseFetch(path, options = {}) {
   const headers = {
+    // Las nuevas claves sb_secret_ de Supabase se envían como apikey.
+    // No se usan como Bearer JWT.
     "apikey": SUPABASE_SECRET_KEY,
-    "Authorization": `Bearer ${SUPABASE_SECRET_KEY}`,
     ...(options.body ? {"Content-Type":"application/json"} : {}),
     ...(options.headers || {})
   };
@@ -586,5 +587,5 @@ app.post("/api/db/orders/:code/sync", requireAdmin, requireSupabase, requireSixo
 });
 
 app.listen(PORT, "0.0.0.0", ()=>{
-  console.log(`Recargas JS API v6 + Supabase funcionando en puerto ${PORT}`);
+  console.log(`Recargas JS API v6.1 + Supabase funcionando en puerto ${PORT}`);
 });
