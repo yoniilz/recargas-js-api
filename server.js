@@ -116,9 +116,14 @@ app.get("/api/catalog/match/:diamonds", requireAdmin, requireSixo, async (req,re
     const items = Array.isArray(data?.data?.items) ? data.data.items : [];
 
     const matches = items.filter(i => {
-      const qtys = [i.diamondQuantity, i.giftDiamonds]
-        .map(v => Number(v))
-        .filter(Number.isFinite);
+      const base = Number(i.diamondQuantity);
+      const bonus = Number(i.diamondBonus);
+      const gift = Number(i.giftDiamonds);
+
+      const totals = [];
+      if (Number.isFinite(base)) totals.push(base);
+      if (Number.isFinite(gift)) totals.push(gift);
+      if (Number.isFinite(base) && Number.isFinite(bonus)) totals.push(base + bonus);
 
       const type = String(i.itemType || "").toUpperCase();
       const diamondType = type.includes("DIAMOND");
@@ -126,13 +131,18 @@ app.get("/api/catalog/match/:diamonds", requireAdmin, requireSixo, async (req,re
       return Boolean(i.available) &&
              Boolean(i.isActive) &&
              diamondType &&
-             qtys.includes(wanted);
+             totals.includes(wanted);
     }).map(i => ({
       id:String(i.id),
       name:i.name,
       itemType:i.itemType,
       diamondQuantity:i.diamondQuantity,
+      diamondBonus:i.diamondBonus,
       giftDiamonds:i.giftDiamonds,
+      totalDiamonds:
+        (Number.isFinite(Number(i.diamondQuantity)) && Number.isFinite(Number(i.diamondBonus)))
+          ? Number(i.diamondQuantity) + Number(i.diamondBonus)
+          : (Number.isFinite(Number(i.giftDiamonds)) ? Number(i.giftDiamonds) : Number(i.diamondQuantity)),
       effectivePriceUsd:i.effectivePriceUsd
     }));
 
@@ -180,9 +190,14 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
 
     // 2) Buscar coincidencia estricta
     const matches = items.filter(i => {
-      const qtys = [i.diamondQuantity, i.giftDiamonds]
-        .map(v => Number(v))
-        .filter(Number.isFinite);
+      const base = Number(i.diamondQuantity);
+      const bonus = Number(i.diamondBonus);
+      const gift = Number(i.giftDiamonds);
+
+      const totals = [];
+      if (Number.isFinite(base)) totals.push(base);
+      if (Number.isFinite(gift)) totals.push(gift);
+      if (Number.isFinite(base) && Number.isFinite(bonus)) totals.push(base + bonus);
 
       const type = String(i.itemType || "").toUpperCase();
       const diamondType = type.includes("DIAMOND");
@@ -190,7 +205,7 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
       return Boolean(i.available) &&
              Boolean(i.isActive) &&
              diamondType &&
-             qtys.includes(diamonds);
+             totals.includes(diamonds);
     });
 
     if(matches.length !== 1){
@@ -204,7 +219,12 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
           name:i.name,
           itemType:i.itemType,
           diamondQuantity:i.diamondQuantity,
+          diamondBonus:i.diamondBonus,
           giftDiamonds:i.giftDiamonds,
+          totalDiamonds:
+            (Number.isFinite(Number(i.diamondQuantity)) && Number.isFinite(Number(i.diamondBonus)))
+              ? Number(i.diamondQuantity) + Number(i.diamondBonus)
+              : (Number.isFinite(Number(i.giftDiamonds)) ? Number(i.giftDiamonds) : Number(i.diamondQuantity)),
           effectivePriceUsd:i.effectivePriceUsd
         }))
       });
