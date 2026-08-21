@@ -10,6 +10,12 @@ const ADMIN_SECRET = process.env.ADMIN_SECRET || "";
 const SIXOFF_API_KEY = process.env.SIXOFF_API_KEY || "";
 const SIXOFF_BASE_URL = "https://api.sixofire.net";
 
+// Protección anti-duplicados en memoria.
+// Evita dobles envíos mientras esta instancia de Render siga activa.
+// Para protección persistente entre reinicios, más adelante conviene agregar una base de datos.
+const sentOrders = new Map();
+const sendingOrders = new Set();
+
 function requireAdmin(req, res, next) {
   const secret = req.get("x-admin-secret");
   if (!ADMIN_SECRET) {
@@ -176,8 +182,28 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
     return res.status(400).json({ok:false,error:"Falta orderId."});
   }
 
+  // Si ya se completó un envío con este orderId, NO volver a comprar.
+  if(sentOrders.has(orderId)){
+    return res.status(409).json({
+      ok:false,
+      duplicate:true,
+      error:"Este pedido ya fue enviado a SixoFire.",
+      previous:sentOrders.get(orderId)
+    });
+  }
+
+  // Si ya hay una solicitud en curso, también la bloqueamos.
+  if(sendingOrders.has(orderId)){
+    return res.status(409).json({
+      ok:false,
+      duplicate:true,
+      error:"Este pedido ya se está procesando."
+    });
+  }
+
+  sendingOrders.add(orderId);
+
   try{
-    // 1) Consultar catálogo
     const catalog = await sixoffFetch("/account/shop/items");
     if(!catalog.response.ok || !catalog.data?.status){
       return res.status(catalog.response.status || 502).json({
@@ -188,7 +214,6 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
 
     const items = Array.isArray(catalog.data?.data?.items) ? catalog.data.data.items : [];
 
-    // 2) Buscar coincidencia estricta
     const matches = items.filter(i => {
       const base = Number(i.diamondQuantity);
       const bonus = Number(i.diamondBonus);
@@ -212,7 +237,7 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
       return res.status(409).json({
         ok:false,
         error: matches.length === 0
-          ? `No encontramos un producto activo de ${diamonds} diamantes.`
+          ? `No encontramos un producto activo equivalente a ${diamonds} diamantes.`
           : `Encontramos ${matches.length} productos compatibles; se requiere selección manual para evitar una compra incorrecta.`,
         candidates: matches.map(i=>({
           id:String(i.id),
@@ -232,7 +257,6 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
 
     const product = matches[0];
 
-    // 3) Crear orden real
     const order = await sixoffFetch("/account/shop/order", {
       method:"POST",
       body:JSON.stringify({
@@ -250,8 +274,7 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
       });
     }
 
-    res.status(201).json({
-      ok:true,
+    const result = {
       orderId,
       product:{
         id:String(product.id),
@@ -267,14 +290,31 @@ app.post("/api/orders/create", requireAdmin, requireSixo, async (req,res)=>{
         totalPriceUsd:order.data?.data?.totalPriceUsd,
         newBalance:order.data?.data?.walletTransaction?.newBalance
       }
+    };
+
+    // Guardar ANTES de responder para bloquear un segundo clic inmediato.
+    sentOrders.set(orderId, result);
+
+    return res.status(201).json({
+      ok:true,
+      ...result
     });
 
   }catch(err){
     console.error(err);
-    res.status(502).json({ok:false,error:"Error interno al conectar con SixoFire."});
+    return res.status(502).json({ok:false,error:"Error interno al conectar con SixoFire."});
+  }finally{
+    sendingOrders.delete(orderId);
   }
 });
 
-app.listen(PORT, "0.0.0.0", ()=>{
+// Consulta temporal de protección anti-duplicados de esta instancia.
+app.get("/api/orders/local/:id", requireAdmin, (req,res)=>{
+  const item = sentOrders.get(req.params.id);
+  if(!item) return res.status(404).json({ok:false,error:"No registrado en esta instancia."});
+  res.json({ok:true, item});
+});
+
+app.listenapp.listen(PORT, "0.0.0.0", ()=>{
   console.log(`Recargas JS API v2 funcionando en puerto ${PORT}`);
 });
